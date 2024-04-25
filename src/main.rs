@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 use std::{
+    fmt::Debug,
     os::raw::c_void,
     ptr,
     sync::Arc,
@@ -22,8 +23,11 @@ use windows::{
         UI::WindowsAndMessaging::{FindWindowA, GetWindowThreadProcessId},
     },
 };
-const OFFSET_LAST: u64 = 0x200;
-const OFFSET_VEC: [u64; 6] = [0x025362D0, 0x148, 0x108, 0x38, 0x58, 0x20];
+const MONEY_LAST: u64 = 0x200;
+const MONEY_OFFSET: [u64; 6] = [0x025362D0, 0x148, 0x108, 0x38, 0x58, 0x20];
+
+const LUCKY_LAST: u64 = 0x490;
+const LUCKY_OFFSET: [u64; 4] = [0x0253C9E0, 0x28, 0x48, 0x8];
 
 fn read_u64(base_ptr: u64, offset: u64, h_process: windows::Win32::Foundation::HANDLE) -> u64 {
     unsafe {
@@ -39,8 +43,71 @@ fn read_u64(base_ptr: u64, offset: u64, h_process: windows::Win32::Foundation::H
         )
         .unwrap();
 
-        let u64_ptr = base_ptr_deref[0] as *const u64;
-        u64_ptr as u64
+        base_ptr_deref[0]
+    }
+}
+
+fn lock_value<T: Sync + Send + 'static + Copy + Debug>(
+    val: Arc<Mutex<T>>,
+    ischecked: Arc<Mutex<bool>>,
+    flag: String,
+    last_offset: u64,
+    offsets: Vec<u64>,
+) {
+    unsafe {
+        let handle = thread::spawn(move || {
+            let mut process_id = 0;
+            let window = FindWindowA(PCSTR(ptr::null()), s!("Brotato"));
+            GetWindowThreadProcessId(window, Some(&mut process_id));
+
+            let h_process = OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), process_id).unwrap();
+
+            let mut module_vec = [0u64, 1];
+            EnumProcessModules(
+                h_process,
+                module_vec.as_mut_ptr() as *mut HMODULE,
+                8,
+                &mut 0,
+            )
+            .unwrap();
+            let mut m_ptr = module_vec[0];
+            for i in offsets {
+                m_ptr = read_u64(m_ptr, i, h_process);
+            }
+            let ptr: *const u64 = (m_ptr + last_offset) as *const u64;
+            println!("{:?}", val.lock());
+            loop {
+                {
+                    let checked = &mut *ischecked.lock();
+                    let current_value = &mut *val.lock();
+                    if !*checked {
+                        break;
+                    }
+                    let buffer = [*current_value; 1];
+                    ReadProcessMemory(
+                        h_process,
+                        ptr as *const c_void,
+                        buffer.as_ptr() as *mut c_void,
+                        8,
+                        None,
+                    )
+                    .unwrap();
+                    // info!("当前金钱：{:?}", buffer[0]);
+                    println!("当前{:?}{:?}", flag, buffer[0]);
+                    let write_buffer = [*current_value];
+                    WriteProcessMemory(
+                        h_process,
+                        ptr as *const c_void,
+                        write_buffer.as_ptr() as *mut c_void,
+                        8,
+                        None,
+                    )
+                    .unwrap();
+                }
+
+                sleep(Duration::from_secs(1));
+            }
+        });
     }
 }
 
@@ -71,8 +138,10 @@ fn main() -> () {
 }
 
 struct MyApp {
-    checked: Arc<Mutex<bool>>,
-    money: Arc<Mutex<u32>>,
+    m_checked: Arc<Mutex<bool>>,
+    c_checked: Arc<Mutex<bool>>,
+    money: Arc<Mutex<u64>>,
+    lucky: Arc<Mutex<f64>>,
 }
 
 impl MyApp {
@@ -105,92 +174,69 @@ impl MyApp {
         // Tell egui to use these fonts:
         ctx.set_fonts(fonts);
         Self {
-            checked: Arc::new(Mutex::new(false)),
+            m_checked: Arc::new(Mutex::new(false)),
+            c_checked: Arc::new(Mutex::new(false)),
             money: Arc::new(Mutex::new(9999)),
+            lucky: Arc::new(Mutex::new(999.0)),
         }
     }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let Self { checked, money } = self;
+        let Self {
+            m_checked,
+            c_checked,
+            money,
+            lucky,
+        } = self;
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let checked_c1 = Arc::clone(&checked);
+                let checked_c1 = Arc::clone(&m_checked);
                 let money_c1 = Arc::clone(&money);
                 let checked1 = &mut *checked_c1.lock();
                 let money1 = &mut *money_c1.lock();
-                let checkbox = ui.checkbox(checked1, "修改金币");
+                let checkbox = ui.checkbox(checked1, "金币");
                 ui.add(
                     DragValue::new(money1)
                         .speed(100)
                         .min_decimals(0)
-                        .max_decimals(999999),
+                        .max_decimals(9999),
                 );
                 if checkbox.changed() {
-                    let checked_c2 = Arc::clone(&checked);
+                    let checked_c2 = Arc::clone(&m_checked);
                     let money_c2 = Arc::clone(&money);
-
-                    unsafe {
-                        let handle = thread::spawn(move || {
-                            let mut process_id = 0;
-                            let window = FindWindowA(PCSTR(ptr::null()), s!("Brotato"));
-                            GetWindowThreadProcessId(window, Some(&mut process_id));
-
-                            let h_process =
-                                OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), process_id).unwrap();
-
-                            let mut module_vec = [0u64, 1];
-                            EnumProcessModules(
-                                h_process,
-                                module_vec.as_mut_ptr() as *mut HMODULE,
-                                8,
-                                &mut 0,
-                            )
-                            .unwrap();
-                            let mut m_ptr = module_vec[0];
-                            for i in OFFSET_VEC {
-                                m_ptr = read_u64(m_ptr, i, h_process);
-                            }
-                            let ptr: *const u64 = (m_ptr + OFFSET_LAST) as *const u64;
-                            let buffer = [0; 1];
-
-                            loop {
-                                {
-                                    let checked = &mut *checked_c2.lock();
-                                    let money = &mut *money_c2.lock();
-                                    if !*checked {
-                                        break;
-                                    }
-                                    ReadProcessMemory(
-                                        h_process,
-                                        ptr as *const c_void,
-                                        buffer.as_ptr() as *mut c_void,
-                                        8,
-                                        None,
-                                    )
-                                    .unwrap();
-                                    // info!("当前金钱：{:?}", buffer[0]);
-                                    println!("当前金钱{:?}", buffer[0]);
-                                    let write_buffer = [*money];
-                                    WriteProcessMemory(
-                                        h_process,
-                                        ptr as *const c_void,
-                                        write_buffer.as_ptr() as *mut c_void,
-                                        8,
-                                        None,
-                                    )
-                                    .unwrap();
-                                }
-
-                                sleep(Duration::from_secs(1));
-                            }
-                        });
-
-                        if !*checked1 {
-                            drop(handle)
-                        };
-                    }
+                    lock_value(
+                        money_c2,
+                        checked_c2,
+                        "金钱".to_string(),
+                        MONEY_LAST,
+                        MONEY_OFFSET.to_vec(),
+                    );
+                }
+            });
+            ui.horizontal(|ui| {
+                let checked_c1 = Arc::clone(&c_checked);
+                let lucky_c1 = Arc::clone(&lucky);
+                let checked1 = &mut *checked_c1.lock();
+                let lucky1 = &mut *lucky_c1.lock();
+                let checkbox = ui.checkbox(checked1, "幸运".to_string());
+                ui.add(
+                    DragValue::new(lucky1)
+                        .speed(100)
+                        .min_decimals(0)
+                        .max_decimals(999),
+                );
+                if checkbox.changed() {
+                    let checked_c2 = Arc::clone(&c_checked);
+                    let lucky_c2 = Arc::clone(&lucky);
+                    lock_value(
+                        lucky_c2,
+                        checked_c2,
+                        "幸运".to_string(),
+                        LUCKY_LAST,
+                        LUCKY_OFFSET.to_vec(),
+                    );
                 }
             });
         });
