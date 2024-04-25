@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 use std::{
-    fmt::Debug,
     os::raw::c_void,
     ptr,
     sync::Arc,
@@ -17,14 +16,12 @@ use windows::{
         Foundation::{BOOL, HMODULE},
         System::{
             Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
-            LibraryLoader::GetModuleHandleA,
-            ProcessStatus::{EnumProcessModules, GetModuleInformation, MODULEINFO},
+            ProcessStatus::EnumProcessModules,
             Threading::{OpenProcess, PROCESS_ALL_ACCESS},
         },
         UI::WindowsAndMessaging::{FindWindowA, GetWindowThreadProcessId},
     },
 };
-const BASE_POINTER: u64 = 0x7FF714870000;
 const OFFSET_LAST: u64 = 0x200;
 const OFFSET_VEC: [u64; 6] = [0x025362D0, 0x148, 0x108, 0x38, 0x58, 0x20];
 
