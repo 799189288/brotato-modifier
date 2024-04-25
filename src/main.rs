@@ -14,15 +14,17 @@ use tracing_subscriber::{fmt, FmtSubscriber};
 use windows::{
     core::{s, PCSTR},
     Win32::{
-        Foundation::BOOL,
+        Foundation::{BOOL, HMODULE},
         System::{
             Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
+            LibraryLoader::GetModuleHandleA,
+            ProcessStatus::{EnumProcessModules, GetModuleInformation, MODULEINFO},
             Threading::{OpenProcess, PROCESS_ALL_ACCESS},
         },
         UI::WindowsAndMessaging::{FindWindowA, GetWindowThreadProcessId},
     },
 };
-const BASE_POINTER: u64 = 0x7FF7F2FD0000;
+const BASE_POINTER: u64 = 0x7FF714870000;
 const OFFSET_LAST: u64 = 0x200;
 const OFFSET_VEC: [u64; 6] = [0x025362D0, 0x148, 0x108, 0x38, 0x58, 0x20];
 
@@ -137,9 +139,19 @@ impl eframe::App for MyApp {
                             let mut process_id = 0;
                             let window = FindWindowA(PCSTR(ptr::null()), s!("Brotato"));
                             GetWindowThreadProcessId(window, Some(&mut process_id));
-                            let mut m_ptr = BASE_POINTER;
+
                             let h_process =
                                 OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), process_id).unwrap();
+
+                            let mut module_vec = [0u64, 1];
+                            EnumProcessModules(
+                                h_process,
+                                module_vec.as_mut_ptr() as *mut HMODULE,
+                                8,
+                                &mut 0,
+                            )
+                            .unwrap();
+                            let mut m_ptr = module_vec[0];
                             for i in OFFSET_VEC {
                                 m_ptr = read_u64(m_ptr, i, h_process);
                             }
@@ -157,17 +169,18 @@ impl eframe::App for MyApp {
                                         h_process,
                                         ptr as *const c_void,
                                         buffer.as_ptr() as *mut c_void,
-                                        4,
+                                        8,
                                         None,
                                     )
                                     .unwrap();
-                                    info!("当前金钱：{:?}", buffer[0]);
+                                    // info!("当前金钱：{:?}", buffer[0]);
+                                    println!("当前金钱{:?}", buffer[0]);
                                     let write_buffer = [*money];
                                     WriteProcessMemory(
                                         h_process,
                                         ptr as *const c_void,
                                         write_buffer.as_ptr() as *mut c_void,
-                                        4,
+                                        8,
                                         None,
                                     )
                                     .unwrap();
