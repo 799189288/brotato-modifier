@@ -26,8 +26,8 @@ use windows::{
 const MONEY_LAST: u64 = 0x200;
 const MONEY_OFFSET: [u64; 6] = [0x025362D0, 0x148, 0x108, 0x38, 0x58, 0x20];
 
-const LUCKY_LAST: u64 = 0x490;
-const LUCKY_OFFSET: [u64; 4] = [0x0253C9E0, 0x28, 0x48, 0x8];
+const LUCKY_LAST: u64 = 0x210;
+const LUCKY_OFFSET: [u64; 5] = [0x0253A1F0, 0xA8, 0x2C0, 0x10, 0xA8];
 
 fn read_u64(base_ptr: u64, offset: u64, h_process: windows::Win32::Foundation::HANDLE) -> u64 {
     unsafe {
@@ -47,7 +47,7 @@ fn read_u64(base_ptr: u64, offset: u64, h_process: windows::Win32::Foundation::H
     }
 }
 
-fn lock_value<T: Sync + Send + 'static + Copy + Debug>(
+fn lock_value<T: Sync + Send + 'static + Copy + Debug + Default>(
     val: Arc<Mutex<T>>,
     ischecked: Arc<Mutex<bool>>,
     flag: String,
@@ -83,7 +83,7 @@ fn lock_value<T: Sync + Send + 'static + Copy + Debug>(
                     if !*checked {
                         break;
                     }
-                    let buffer = [*current_value; 1];
+                    let buffer = [T::default(); 1];
                     ReadProcessMemory(
                         h_process,
                         ptr as *const c_void,
@@ -141,7 +141,7 @@ struct MyApp {
     m_checked: Arc<Mutex<bool>>,
     c_checked: Arc<Mutex<bool>>,
     money: Arc<Mutex<u64>>,
-    lucky: Arc<Mutex<f64>>,
+    lucky: Arc<Mutex<u64>>,
 }
 
 impl MyApp {
@@ -177,7 +177,7 @@ impl MyApp {
             m_checked: Arc::new(Mutex::new(false)),
             c_checked: Arc::new(Mutex::new(false)),
             money: Arc::new(Mutex::new(9999)),
-            lucky: Arc::new(Mutex::new(999.0)),
+            lucky: Arc::new(Mutex::new(999)),
         }
     }
 }
