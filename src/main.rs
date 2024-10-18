@@ -133,7 +133,7 @@ fn main() -> () {
     let _ = eframe::run_native(
         "土豆兄弟修改器",
         options,
-        Box::new(|cc| Box::new(MyApp::new(cc))),
+        Box::new(|cc| Ok(Box::new(MyApp::new(cc)))),
     );
 }
 
@@ -183,7 +183,7 @@ impl MyApp {
 }
 
 impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let Self {
             m_checked,
             c_checked,
@@ -201,7 +201,7 @@ impl eframe::App for MyApp {
                     DragValue::new(money1)
                         .speed(100)
                         .min_decimals(0)
-                        .max_decimals(9999),
+                        .max_decimals(99),
                 );
                 if checkbox.changed() {
                     let checked_c2 = Arc::clone(&m_checked);
@@ -225,7 +225,7 @@ impl eframe::App for MyApp {
                     DragValue::new(lucky1)
                         .speed(100)
                         .min_decimals(0)
-                        .max_decimals(999),
+                        .max_decimals(99),
                 );
                 if checkbox.changed() {
                     let checked_c2 = Arc::clone(&c_checked);
